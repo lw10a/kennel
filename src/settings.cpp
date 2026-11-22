@@ -42,6 +42,7 @@ void Settings::load(const std::string& file) {
     accent = std::clamp(atoi(s->get("accent", "0").c_str()), 0, kAccentCount);
     parseColor(s->get("accent_custom"), customAccent);
     lowBattery = std::clamp(atoi(s->get("low_battery", std::to_string(lowBattery)).c_str()), 0, 50);
+    screensaverAfter = std::clamp(atoi(s->get("screensaver_after", std::to_string(screensaverAfter)).c_str()), 0, 86400);
     screenOffAfter = std::clamp(atoi(s->get("screen_off_after", std::to_string(screenOffAfter)).c_str()), 0, 86400);
     powerOffAfter = std::clamp(atoi(s->get("power_off_after", std::to_string(powerOffAfter)).c_str()), 0, 86400);
     criticalBattery = std::clamp(atoi(s->get("critical_battery", std::to_string(criticalBattery)).c_str()), 0, 20);
@@ -83,6 +84,7 @@ bool Settings::save() const {
     out += strprintf("animations=%s\n", animNames[(int)animations]);
     out += strprintf("sort=%s\n", sortNames[(int)sort]);
     out += strprintf("low_battery=%d\n", lowBattery);
+    out += strprintf("screensaver_after=%d\n", screensaverAfter);
     out += strprintf("screen_off_after=%d\n", screenOffAfter);
     out += strprintf("power_off_after=%d\n", powerOffAfter);
     out += strprintf("critical_battery=%d\n", criticalBattery);

@@ -29,6 +29,7 @@ public:
     virtual void draw() = 0;
     virtual bool overlay() const { return false; }
     virtual bool showDock() const { return false; }
+    virtual bool immersive() const { return false; }  // hides the top and bottom bars
     virtual std::vector<Hint> hints() const { return {}; }
     virtual std::string title() const { return {}; }
     virtual void resumed() {}
@@ -75,6 +76,7 @@ public:
     void switchToPrevious();
     void restart();
     void setWallpaper(const std::string& path);
+    void openScreensaver();  // the wallpaper alone, any button returns
     std::string wrapCommand(const Entry& e) const;
     void saveState();
     // Writes kennel.ini a moment after the last change, so a slider sweep is one write.

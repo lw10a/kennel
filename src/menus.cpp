@@ -314,6 +314,8 @@ void App::openSettings() {
             m.push_back(presetChoice("power", "Power off after", {"Never", "10 min", "15 min", "30 min", "1 hour", "2 hours"},
                                      {0, 600, 900, 1800, 3600, 7200}, &settings.powerOffAfter));
         }
+        m.push_back(presetChoice("image", "Screensaver after", {"Never", "30 s", "1 min", "2 min", "5 min"},
+                                 {0, 30, 60, 120, 300}, &settings.screensaverAfter));
         if (sys.hasBacklight())
             m.push_back(presetChoice("monitor-off", "Screen off after", {"Never", "1 min", "2 min", "5 min", "10 min", "30 min"},
                                      {0, 60, 120, 300, 600, 1800}, &settings.screenOffAfter));

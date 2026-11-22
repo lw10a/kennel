@@ -169,6 +169,10 @@ void App::checkIdle(double now, int level) {
         if (idle >= off) screenOff();
         else if (idle >= off - std::min(kDimLead, off / 2) && !sys.screenDimmed()) sys.dimScreen();
     }
+    if (settings.screensaverAfter > 0 && idle >= settings.screensaverAfter && !settings.wallpaper.empty() && !sys.screenIsOff()) {
+        Screen* s = top();
+        if (s && s == static_cast<Screen*>(home) && !s->closing()) openScreensaver();  // only from the home screen
+    }
     const Battery& b = sys.battery;
     if (settings.powerOffAfter > 0 && !platform.poweroff.empty() && !b.charging() && !b.externalPower &&
         now - lastPress_ >= settings.powerOffAfter) {
@@ -425,6 +429,34 @@ void App::checkBattery() {
     }
 }
 
+// ----------------------------------------------------------- screensaver ---
+
+namespace {
+// Only the wallpaper (animated for a GIF), full brightness, no bars; any button closes it.
+class WallpaperScreen : public Screen {
+public:
+    void input(const KeyEvent& ev) override {
+        if (!ev.repeat) close();
+    }
+    bool immersive() const override { return true; }
+    void draw() override {
+        float t = shown.value;
+        gfx.fill({0, 0, gfx.W, gfx.H}, fade(rgb(0x000000), t));
+        if (SDL_Texture* w = wallpaper()) gfx.image(w, {0, 0, gfx.W, gfx.H}, t);
+    }
+};
+}  // namespace
+
+void App::openScreensaver() {
+    if (settings.wallpaper.empty() || !wallpaper()) {
+        toast("Set a wallpaper first (Files > X)", "image", theme::warn);
+        return;
+    }
+    Screen* s = top();
+    if (dynamic_cast<WallpaperScreen*>(s) && !s->closing()) return;
+    push(std::make_unique<WallpaperScreen>());
+}
+
 // ----------------------------------------------------------------- dock ---
 
 std::vector<App::DockItem> App::dockItems() const {
@@ -435,6 +467,7 @@ std::vector<App::DockItem> App::dockItems() const {
         out.push_back({"terminal", "Terminal", [] { app.openTerminal(); }});
     }
     out.push_back({"folder", "Files", [] { app.openFiles(); }});
+    out.push_back({"image", "Wallpaper", [] { app.openScreensaver(); }});
     out.push_back({"chart-column", "Statistics", [] { app.openStatistics(); }});
     if (sys.hasBacklight()) out.push_back({"monitor-off", "Screen off", [] { app.screenOff(); }});
     if (!platform.eject.empty() && sys.externalMounted) out.push_back({"card", "Eject card", [] { app.eject(); }});
@@ -701,8 +734,11 @@ void App::frame() {
         stack_[i]->update();
         stack_[i]->draw();
     }
-    drawTopBar();
-    drawBottomBar();
+    Screen* topScreen = top();
+    if (!topScreen || topScreen->closing() || !topScreen->immersive()) {
+        drawTopBar();
+        drawBottomBar();
+    }
     drawToast();
     drawLaunch();
     drawPerf();
@@ -785,6 +821,10 @@ int App::run(int argcIn, char** argvIn) {
     queryUsbMode();
     std::vector<KeyEvent> keys;
     bool needFrame = true, gamepadStarted = false;
+    // The wallpaper moves (animated GIF) behind the pages, or alone as the screensaver.
+    auto wallpaperShown = [&] {
+        return !dark_ && (settings.background == Settings::Background::Wallpaper || dynamic_cast<WallpaperScreen*>(top()));
+    };
     while (running_) {
         anim::tick();
         double now = anim::now();
@@ -794,7 +834,7 @@ int App::run(int argcIn, char** argvIn) {
         int repeat = input.timeoutMs();
         if (repeat >= 0) timeout = std::min(timeout, repeat);
         if (launch_.active && launch_.started) timeout = std::min(timeout, 500);
-        if (!dark_ && settings.background == Settings::Background::Wallpaper) {
+        if (wallpaperShown()) {
             double next = wallpaperNextFrameIn(now);  // animated GIF wallpaper: wake for its next frame
             if (next >= 0) timeout = std::min(timeout, (int)std::ceil(next * 1000));
         }
@@ -841,7 +881,7 @@ int App::run(int argcIn, char** argvIn) {
             }
             if (std::any_of(stack_.begin(), stack_.end(), [](const auto& s) { return s->live(); })) dirty = true;
         }
-        if (!dark_ && settings.background == Settings::Background::Wallpaper && wallpaperTick(now)) dirty = true;
+        if (wallpaperShown() && wallpaperTick(now)) dirty = true;
         if (settingsAt_ > 0 && now >= settingsAt_) flushSettings();  // the loop wakes at least every poll
         if (launch_.active && launch_.started && now - launch_.since > kLaunchTimeout) {
             launch_.active = false;

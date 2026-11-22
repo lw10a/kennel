@@ -19,6 +19,7 @@ struct Settings {
     Animations animations = Animations::Normal;
     Sort sort = Sort::Name;
     int lowBattery = 15;
+    int screensaverAfter = 0;  // seconds idle on the home screen before the wallpaper screensaver, 0: never
     int screenOffAfter = 0;  // seconds without input, 0: never
     int powerOffAfter = 0;   // seconds without input on battery, 0: never
     int criticalBattery = 0;  // percent at which kennel powers off, 0: never
