@@ -83,15 +83,27 @@ int gifFrameCount(const std::string& b, int& w, int& h) {
 
 bool loadGifSeq(const std::string& path, int tw, int th, size_t maxBytes, ImageSeq& out) {
     auto bytes = readFile(path);
-    if (!bytes) return false;
+    if (!bytes) {
+        logf("gif: cannot read %s", path.c_str());
+        return false;
+    }
     int gw = 0, gh = 0;
     int count = gifFrameCount(*bytes, gw, gh);
+    logf("gif: %zu bytes, %dx%d, %d frames", bytes->size(), gw, gh, count);
+    if (count < 1 || gw <= 0 || gh <= 0) {
+        logf("gif: not a valid GIF (header or blocks unreadable)");
+        return false;
+    }
     // stb decodes all frames at full size at once: refuse what would not fit in memory (device < 500 MB).
-    if (count < 1 || gw <= 0 || gh <= 0 || (unsigned long long)gw * gh * count * 4ull > 96ull * 1024 * 1024) return false;
+    if ((unsigned long long)gw * gh * count * 4ull > 96ull * 1024 * 1024) {
+        logf("gif: too large to decode (%llu MB of frames, limit 96)", (unsigned long long)gw * gh * count * 4ull >> 20);
+        return false;
+    }
     int* delays = nullptr;
     int w, h, z, n;
     stbi_uc* data = stbi_load_gif_from_memory((const stbi_uc*)bytes->data(), (int)bytes->size(), &delays, &w, &h, &z, &n, 4);
     if (!data || z < 1) {
+        logf("gif: decoder failed: %s", stbi_failure_reason() ? stbi_failure_reason() : "unknown");
         if (data) stbi_image_free(data);
         if (delays) free(delays);
         return false;
