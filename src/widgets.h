@@ -71,4 +71,9 @@ private:
 void drawBackground(float alpha = 1.f, bool light = false);
 // The wallpaper scaled to the screen, decoded once and cached as QOI; null without a usable image.
 SDL_Texture* wallpaper();
+// An animated GIF wallpaper: the current frame comes from wallpaper(). wallpaperNextFrameIn() gives the
+// seconds until the frame changes (-1 when the wallpaper does not move); wallpaperTick() is true once
+// each time the frame changed since the last call, so the main loop redraws only then.
+bool wallpaperTick(double now);
+double wallpaperNextFrameIn(double now);
 void drawPageHeader(const std::string& icon, const std::string& title, const std::string& subtitle, float alpha);

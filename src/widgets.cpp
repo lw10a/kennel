@@ -5,6 +5,7 @@
 
 #include <sys/stat.h>
 
+#include "anim.h"
 #include "image.h"
 #include "paths.h"
 #include "settings.h"
@@ -29,6 +30,38 @@ size_t nextChar(const std::string& s, size_t i) {
 }  // namespace
 
 
+namespace {
+// Animated wallpaper: frames are stored at half the screen size (they sit under a dark gradient anyway)
+// and stretched on draw; at most kGifBytes of frames are kept.
+constexpr size_t kGifBytes = 48u * 1024 * 1024;
+struct GifWall {
+    std::vector<SDL_Texture*> frames;
+    std::vector<double> ends;  // cumulative end time of each frame, seconds
+    double total = 0, t0 = 0;
+    int ticked = -1;
+
+    void clear() {
+        for (SDL_Texture* t : frames) SDL_DestroyTexture(t);
+        frames.clear();
+        ends.clear();
+        total = 0;
+        ticked = -1;
+    }
+    int indexAt(double now) const {
+        if (frames.size() < 2 || total <= 0) return 0;
+        double t = std::fmod(std::max(0.0, now - t0), total);
+        size_t i = std::upper_bound(ends.begin(), ends.end(), t) - ends.begin();
+        return (int)std::min(i, frames.size() - 1);
+    }
+};
+GifWall gifWall;
+
+bool isGif(const std::string& path) {
+    size_t dot = path.rfind('.'), slash = path.rfind('/');
+    return dot != std::string::npos && (slash == std::string::npos || dot > slash) && lower(path.substr(dot + 1)) == "gif";
+}
+}  // namespace
+
 SDL_Texture* wallpaper() {
     static std::string loadedKey;
     static SDL_Texture* tex = nullptr;
@@ -37,11 +70,44 @@ SDL_Texture* wallpaper() {
     std::string key = settings.wallpaper.empty() || stat(path.c_str(), &st) != 0
                           ? std::string()
                           : strprintf("%s\t%lld\t%lld", path.c_str(), (long long)st.st_size, (long long)st.st_mtime);
-    if (key == loadedKey) return tex;
+    if (key == loadedKey) {
+        if (!gifWall.frames.empty()) return gifWall.frames[gifWall.indexAt(anim::now())];
+        return tex;
+    }
     loadedKey = key;
     if (tex) SDL_DestroyTexture(tex);
     tex = nullptr;
+    gifWall.clear();
     if (key.empty()) return nullptr;
+
+    if (isGif(path)) {
+        ImageSeq seq;
+        if (loadGifSeq(path, (int)gfx.W / 2, (int)gfx.H / 2, kGifBytes, seq)) {
+            if (seq.frames.size() == 1) {
+                tex = gfx.texture(cover(seq.frames[0], (int)gfx.W, (int)gfx.H));
+                return tex;
+            }
+            double t = 0;
+            for (size_t i = 0; i < seq.frames.size(); ++i) {
+                SDL_Texture* ft = gfx.texture(seq.frames[i]);
+                if (!ft) {
+                    gifWall.clear();
+                    break;
+                }
+                gifWall.frames.push_back(ft);
+                t += seq.delaysMs[i] / 1000.0;
+                gifWall.ends.push_back(t);
+            }
+            if (!gifWall.frames.empty()) {
+                gifWall.total = t;
+                gifWall.t0 = anim::now();
+                logf("gif wallpaper %s: %zu frames, %.1f s", path.c_str(), gifWall.frames.size(), t);
+                return gifWall.frames[0];
+            }
+        }
+        logf("wallpaper %s: cannot decode as animated gif, trying as still image", path.c_str());
+    }
+
     std::string qoi = paths.cache + "/wallpaper.qoi", keyFile = paths.cache + "/wallpaper.key";
     Image img;
     if (readFile(keyFile).value_or("") != key || !loadQoi(qoi, img)) {
@@ -55,6 +121,22 @@ SDL_Texture* wallpaper() {
     }
     tex = gfx.texture(img);
     return tex;
+}
+
+bool wallpaperTick(double now) {
+    if (gifWall.frames.size() < 2) return false;
+    int i = gifWall.indexAt(now);
+    if (i == gifWall.ticked) return false;
+    gifWall.ticked = i;
+    return true;
+}
+
+double wallpaperNextFrameIn(double now) {
+    if (gifWall.frames.size() < 2 || gifWall.total <= 0) return -1;
+    double t = std::fmod(std::max(0.0, now - gifWall.t0), gifWall.total);
+    size_t i = std::upper_bound(gifWall.ends.begin(), gifWall.ends.end(), t) - gifWall.ends.begin();
+    if (i >= gifWall.ends.size()) return 0;
+    return std::max(0.0, gifWall.ends[i] - t);
 }
 
 void drawBackground(float alpha, bool light) {

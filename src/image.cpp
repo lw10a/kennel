@@ -8,6 +8,7 @@
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG
 #define STBI_ONLY_BMP
+#define STBI_ONLY_GIF
 #include "stb_image.h"
 
 #define QOI_IMPLEMENTATION
@@ -45,6 +46,81 @@ bool loadImageMemory(const std::string& bytes, Image& out) {
     out.px.assign(data, data + (size_t)w * h * 4);
     stbi_image_free(data);
     return true;
+}
+
+namespace {
+// Counts the image frames of a GIF without decoding them (header, colour tables and blocks only), so a
+// huge animation can be refused before stb allocates every frame. Returns 0 when the file is not a GIF.
+int gifFrameCount(const std::string& b, int& w, int& h) {
+    const auto* d = (const uint8_t*)b.data();
+    size_t n = b.size(), i = 13;
+    if (n < 14 || memcmp(d, "GIF8", 4) != 0) return 0;
+    w = d[6] | d[7] << 8;
+    h = d[8] | d[9] << 8;
+    if (d[10] & 0x80) i += 3u << ((d[10] & 7) + 1);
+    int frames = 0;
+    while (i < n) {
+        uint8_t t = d[i++];
+        if (t == 0x3b) break;
+        if (t == 0x2c) {
+            if (i + 9 > n) break;
+            uint8_t flags = d[i + 8];
+            i += 9;
+            if (flags & 0x80) i += 3u << ((flags & 7) + 1);
+            ++i;  // LZW minimum code size
+            ++frames;
+        } else if (t == 0x21) {
+            ++i;  // extension label
+        } else {
+            break;
+        }
+        while (i < n && d[i] != 0) i += d[i] + 1u;  // data sub-blocks
+        ++i;
+    }
+    return frames;
+}
+}  // namespace
+
+bool loadGifSeq(const std::string& path, int tw, int th, size_t maxBytes, ImageSeq& out) {
+    auto bytes = readFile(path);
+    if (!bytes) return false;
+    int gw = 0, gh = 0;
+    int count = gifFrameCount(*bytes, gw, gh);
+    // stb decodes all frames at full size at once: refuse what would not fit in memory (device < 500 MB).
+    if (count < 1 || gw <= 0 || gh <= 0 || (unsigned long long)gw * gh * count * 4ull > 96ull * 1024 * 1024) return false;
+    int* delays = nullptr;
+    int w, h, z, n;
+    stbi_uc* data = stbi_load_gif_from_memory((const stbi_uc*)bytes->data(), (int)bytes->size(), &delays, &w, &h, &z, &n, 4);
+    if (!data || z < 1) {
+        if (data) stbi_image_free(data);
+        if (delays) free(delays);
+        return false;
+    }
+    bytes->clear();
+    bytes->shrink_to_fit();
+    size_t perFrame = (size_t)tw * th * 4;
+    int keepEvery = 1;
+    while (perFrame * ((z + keepEvery - 1) / keepEvery) > maxBytes) ++keepEvery;
+    out.frames.clear();
+    out.delaysMs.clear();
+    size_t frameBytes = (size_t)w * h * 4;
+    for (int i = 0; i < z; ++i) {
+        int d = delays ? delays[i] : 100;
+        if (d < 20) d = 100;  // browsers treat 0 and 10 ms as 100 ms
+        if (i % keepEvery == 0) {
+            Image src;
+            src.w = w;
+            src.h = h;
+            src.px.assign(data + i * frameBytes, data + (i + 1) * frameBytes);
+            out.frames.push_back(cover(src, tw, th));
+            out.delaysMs.push_back(d);
+        } else {
+            out.delaysMs.back() += d;
+        }
+    }
+    stbi_image_free(data);
+    if (delays) free(delays);
+    return !out.frames.empty();
 }
 
 bool loadQoi(const std::string& path, Image& out) {

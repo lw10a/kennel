@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <csignal>
 #include <ctime>
 #include <sys/wait.h>
@@ -793,6 +794,10 @@ int App::run(int argcIn, char** argvIn) {
         int repeat = input.timeoutMs();
         if (repeat >= 0) timeout = std::min(timeout, repeat);
         if (launch_.active && launch_.started) timeout = std::min(timeout, 500);
+        if (!dark_ && settings.background == Settings::Background::Wallpaper) {
+            double next = wallpaperNextFrameIn(now);  // animated GIF wallpaper: wake for its next frame
+            if (next >= 0) timeout = std::min(timeout, (int)std::ceil(next * 1000));
+        }
         bool got = needFrame ? SDL_PollEvent(&ev) : waitEvent(&ev, timeout, dark_ ? kInputPollOffMs : kInputPollMs);
         keys.clear();
         bool pressed = false;  // any key or button, also those kennel doesn't map (volume, power)
@@ -836,6 +841,7 @@ int App::run(int argcIn, char** argvIn) {
             }
             if (std::any_of(stack_.begin(), stack_.end(), [](const auto& s) { return s->live(); })) dirty = true;
         }
+        if (!dark_ && settings.background == Settings::Background::Wallpaper && wallpaperTick(now)) dirty = true;
         if (settingsAt_ > 0 && now >= settingsAt_) flushSettings();  // the loop wakes at least every poll
         if (launch_.active && launch_.started && now - launch_.since > kLaunchTimeout) {
             launch_.active = false;
