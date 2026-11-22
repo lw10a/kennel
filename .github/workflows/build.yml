@@ -15,7 +15,15 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang lld llvm xz-utils zip curl binutils debian-archive-keyring
+          sudo apt-get install -y cmake ninja-build clang lld llvm xz-utils zip curl binutils
+
+      - name: Install current Debian archive keyring
+        run: |
+          # Ubuntu's copy predates the trixie signing keys, so gpgv could not verify the Release file.
+          pool=http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/
+          deb=$(curl -fsSL "$pool" | grep -o 'debian-archive-keyring_[^"<>]*_all\.deb' | sort -uV | tail -1)
+          curl -fsSL -o /tmp/keyring.deb "$pool$deb"
+          sudo dpkg -i /tmp/keyring.deb
 
       - name: Cross build (armhf)
         run: scripts/build.sh armhf
