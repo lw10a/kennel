@@ -1,0 +1,34 @@
+name: Build armhf (goodluckOS)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  armhf:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang lld llvm xz-utils zip curl binutils debian-archive-keyring
+
+      - name: Cross build (armhf)
+        run: scripts/build.sh armhf
+
+      - name: Stage goodluckOS package
+        run: scripts/stage-glos.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kennel-glos
+          path: |
+            build/kennel-glos.zip
+            build/kennel-fonts.zip
+            build/armhf/kennel
+            build/armhf/kennel-read
+            build/armhf/kennel-term
